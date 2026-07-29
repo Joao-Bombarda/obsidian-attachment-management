@@ -44,6 +44,7 @@ export class ArrangeHandler {
     // only rearrange attachment that linked by markdown or canvas
     const attachments = await this.getAttachmentsInVault(this.pluginSettings, type, file, oldPath);
     debugLog("rearrangeAttachment - attachments:", Object.keys(attachments).length, Object.entries(attachments));
+    const renamedAttachmentFolders = new Set<string>();
     for (const obNote of Object.keys(attachments)) {
       const innerFile = this.app.vault.getAbstractFileByPath(obNote);
       if (!(innerFile instanceof TFile) || isAttachment(this.app, this.pluginSettings, innerFile)) {
@@ -55,7 +56,6 @@ export class ArrangeHandler {
       if (attachments[obNote].size == 0) {
         continue;
       }
-
 
       for (let link of attachments[obNote]) {
         try {
@@ -74,9 +74,24 @@ export class ArrangeHandler {
         const metadata = getMetadata(obNote, linkFile);
         const attachPath = metadata.getAttachmentPath(setting);
 
+        // Create the extension-specific attachment folder when needed.
         if (!(await this.app.vault.adapter.exists(attachPath, true))) {
-          await this.app.vault.adapter.mkdir(attachPath);
+          // Preserve the original case-only folder rename behavior, but calculate
+          // the old path with the current attachment's extension override.
+          if (oldPath != undefined && (await this.app.vault.adapter.exists(attachPath, false))) {
+            const oldMetadata = getMetadata(oldPath, linkFile);
+            const oldAttachPath = oldMetadata.getAttachmentPath(setting);
+
+            if (!renamedAttachmentFolders.has(oldAttachPath)) {
+              // This will trigger the rename event and cause the attachment path to change.
+              await this.app.vault.adapter.rename(oldAttachPath, attachPath);
+              renamedAttachmentFolders.add(oldAttachPath);
+            }
+          } else {
+            await this.app.vault.adapter.mkdir(attachPath);
+          }
         }
+
         const attachName = await metadata.getAttachFileName(
           setting,
           this.pluginSettings.dateFormat,
